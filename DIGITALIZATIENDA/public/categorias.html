@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Categorías — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title"></span>
+      <div class="topbar-right">
+        <button class="btn btn-primary" onclick="abrirNuevo()">➕ Nueva Categoría</button>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Categorías de Productos</h3>
+          <div class="search-bar">
+            <input id="q-buscar" placeholder="🔍 Buscar..." oninput="renderTabla()">
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Nombre</th><th>Descripción</th><th>Productos</th><th>Acciones</th>
+              </tr></thead>
+              <tbody id="tabla-body">
+                <tr><td colspan="5"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-form">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <h3 id="modal-titulo">Nueva Categoría</h3>
+      <button class="modal-close" onclick="closeModal('modal-form')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="f-id">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Nombre de la Categoría *</label>
+          <input id="f-nombre" placeholder="Ej: Electrónica">
+        </div>
+        <div class="form-group full">
+          <label>Descripción</label>
+          <textarea id="f-desc" placeholder="Descripción opcional..."></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-form')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardar()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-del">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header"><h3>¿Eliminar categoría?</h3><button class="modal-close" onclick="closeModal('modal-del')">✕</button></div>
+    <div class="modal-body"><p>Si tiene productos asociados no se podrá eliminar. ¿Continuar?</p></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-del')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarEliminar()">🗑️ Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script src="layout.js"></script>
+<script>
+initLayout('categorias');
+let _data = [], _delId = null;
+
+async function cargar() {
+  try {
+    _data = await api('GET', '/api/categorias');
+    renderTabla();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function renderTabla() {
+  const q = document.getElementById('q-buscar').value.toLowerCase();
+  const tbody = document.getElementById('tabla-body');
+  const rows = _data.filter(c => c.nombre_categoria.toLowerCase().includes(q));
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="icon">🏷️</span><h4>Sin categorías</h4><p>Crea tu primera categoría</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(c => `
+    <tr>
+      <td><strong>#${c.id_categoria}</strong></td>
+      <td><strong>${c.nombre_categoria}</strong></td>
+      <td style="color:var(--muted)">${c.descripcion || '—'}</td>
+      <td><span class="badge badge-brand">${c.total_productos} productos</span></td>
+      <td>
+        <div class="cell-actions">
+          <button class="btn-icon" onclick="editar(${c.id_categoria})">✏️</button>
+          <button class="btn-icon" onclick="eliminar(${c.id_categoria})">🗑️</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function abrirNuevo() {
+  document.getElementById('modal-titulo').textContent = 'Nueva Categoría';
+  document.getElementById('f-id').value = '';
+  document.getElementById('f-nombre').value = '';
+  document.getElementById('f-desc').value = '';
+  openModal('modal-form');
+}
+
+function editar(id) {
+  const c = _data.find(x => x.id_categoria === id);
+  if (!c) return;
+  document.getElementById('modal-titulo').textContent = 'Editar Categoría';
+  document.getElementById('f-id').value = c.id_categoria;
+  document.getElementById('f-nombre').value = c.nombre_categoria;
+  document.getElementById('f-desc').value = c.descripcion || '';
+  openModal('modal-form');
+}
+
+async function guardar() {
+  const id = document.getElementById('f-id').value;
+  const nombre = document.getElementById('f-nombre').value.trim();
+  if (!nombre) return showToast('El nombre es requerido','error');
+  const body = { nombre_categoria: nombre, descripcion: document.getElementById('f-desc').value.trim() };
+  try {
+    if (id) await api('PUT', `/api/categorias/${id}`, body);
+    else     await api('POST', '/api/categorias', body);
+    showToast(id ? 'Categoría actualizada ✅' : 'Categoría creada ✅','success');
+    closeModal('modal-form');
+    cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function eliminar(id) { _delId = id; openModal('modal-del'); }
+async function confirmarEliminar() {
+  try {
+    await api('DELETE', `/api/categorias/${_delId}`);
+    showToast('Categoría eliminada','success');
+    closeModal('modal-del'); cargar();
+  } catch(e) { showToast(e.message,'error'); closeModal('modal-del'); }
+}
+
+cargar();
+</script>
+</body>
+</html>

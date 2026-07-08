@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Proveedores — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title"></span>
+      <div class="topbar-right">
+        <button class="btn btn-primary" onclick="abrirNuevo()">➕ Nuevo Proveedor</button>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Proveedores</h3>
+          <div class="search-bar">
+            <input id="q-buscar" placeholder="🔍 Buscar..." oninput="renderTabla()">
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Nombre</th><th>Contacto</th><th>Productos</th><th>Acciones</th></tr></thead>
+              <tbody id="tabla-body">
+                <tr><td colspan="5"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-form">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <h3 id="modal-titulo">Nuevo Proveedor</h3>
+      <button class="modal-close" onclick="closeModal('modal-form')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="f-id">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Nombre del Proveedor *</label>
+          <input id="f-nombre" placeholder="Ej: Distribuidora ABC">
+        </div>
+        <div class="form-group full">
+          <label>Número de Contacto</label>
+          <input id="f-contacto" placeholder="Ej: 601-1234567">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-form')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardar()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-del">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header"><h3>¿Eliminar proveedor?</h3><button class="modal-close" onclick="closeModal('modal-del')">✕</button></div>
+    <div class="modal-body"><p>Si tiene productos asociados no se podrá eliminar.</p></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-del')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarEliminar()">🗑️ Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script src="layout.js"></script>
+<script>
+initLayout('proveedores');
+let _data = [], _delId = null;
+
+async function cargar() {
+  try { _data = await api('GET','/api/proveedores'); renderTabla(); }
+  catch(e) { showToast(e.message,'error'); }
+}
+
+function renderTabla() {
+  const q = document.getElementById('q-buscar').value.toLowerCase();
+  const tbody = document.getElementById('tabla-body');
+  const rows = _data.filter(p => p.nombre_proveedor.toLowerCase().includes(q) || (p.numero_contacto||'').includes(q));
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="icon">🚚</span><h4>Sin proveedores</h4><p>Agrega tu primer proveedor</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(p => `
+    <tr>
+      <td><strong>#${p.id_proveedor}</strong></td>
+      <td><strong>${p.nombre_proveedor}</strong></td>
+      <td>${p.numero_contacto || '<span style="color:var(--muted)">—</span>'}</td>
+      <td><span class="badge badge-brand">${p.total_productos} productos</span></td>
+      <td>
+        <div class="cell-actions">
+          <button class="btn-icon" onclick="editar(${p.id_proveedor})">✏️</button>
+          <button class="btn-icon" onclick="eliminar(${p.id_proveedor})">🗑️</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function abrirNuevo() {
+  document.getElementById('modal-titulo').textContent = 'Nuevo Proveedor';
+  document.getElementById('f-id').value = '';
+  document.getElementById('f-nombre').value = '';
+  document.getElementById('f-contacto').value = '';
+  openModal('modal-form');
+}
+
+function editar(id) {
+  const p = _data.find(x => x.id_proveedor === id);
+  if (!p) return;
+  document.getElementById('modal-titulo').textContent = 'Editar Proveedor';
+  document.getElementById('f-id').value = p.id_proveedor;
+  document.getElementById('f-nombre').value = p.nombre_proveedor;
+  document.getElementById('f-contacto').value = p.numero_contacto || '';
+  openModal('modal-form');
+}
+
+async function guardar() {
+  const id = document.getElementById('f-id').value;
+  const nombre = document.getElementById('f-nombre').value.trim();
+  if (!nombre) return showToast('El nombre es requerido','error');
+  const body = { nombre_proveedor: nombre, numero_contacto: document.getElementById('f-contacto').value.trim() };
+  try {
+    if (id) await api('PUT', `/api/proveedores/${id}`, body);
+    else     await api('POST', '/api/proveedores', body);
+    showToast(id ? 'Proveedor actualizado ✅' : 'Proveedor creado ✅','success');
+    closeModal('modal-form'); cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function eliminar(id) { _delId = id; openModal('modal-del'); }
+async function confirmarEliminar() {
+  try {
+    await api('DELETE', `/api/proveedores/${_delId}`);
+    showToast('Proveedor eliminado','success');
+    closeModal('modal-del'); cargar();
+  } catch(e) { showToast(e.message,'error'); closeModal('modal-del'); }
+}
+
+cargar();
+</script>
+</body>
+</html>

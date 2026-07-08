@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Clientes — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title"></span>
+      <div class="topbar-right">
+        <button class="btn btn-primary" onclick="abrirNuevo()">➕ Nuevo Cliente</button>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Clientes Registrados</h3>
+          <div class="search-bar">
+            <input id="q-buscar" placeholder="🔍 Buscar por nombre, ID o email..." oninput="cargar()">
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Nombre</th><th>Identificación</th><th>Email</th><th>Teléfono</th><th>Dirección</th><th>Acciones</th>
+              </tr></thead>
+              <tbody id="tabla-body">
+                <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-form">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-titulo">Nuevo Cliente</h3>
+      <button class="modal-close" onclick="closeModal('modal-form')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="f-id">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Nombre Completo *</label>
+          <input id="f-nombre" placeholder="Ej: Juan Pérez">
+        </div>
+        <div class="form-group">
+          <label>Identificación *</label>
+          <input id="f-identificacion" placeholder="Ej: 1020304050">
+        </div>
+        <div class="form-group">
+          <label>Correo Electrónico</label>
+          <input type="email" id="f-email" placeholder="cliente@correo.com">
+        </div>
+        <div class="form-group">
+          <label>Teléfono</label>
+          <input id="f-telefono" placeholder="Ej: 300-1234567">
+        </div>
+        <div class="form-group full">
+          <label>Dirección</label>
+          <input id="f-direccion" placeholder="Ej: Calle 10 # 20-30, Bogotá">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-form')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardar()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-del">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header"><h3>¿Eliminar cliente?</h3><button class="modal-close" onclick="closeModal('modal-del')">✕</button></div>
+    <div class="modal-body"><p>Si tiene facturas asociadas no podrá eliminarse.</p></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-del')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarEliminar()">🗑️ Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script src="layout.js"></script>
+<script>
+initLayout('clientes');
+let _delId = null;
+
+async function cargar() {
+  const q = document.getElementById('q-buscar').value;
+  const tbody = document.getElementById('tabla-body');
+  try {
+    const rows = await api('GET', `/api/clientes?buscar=${encodeURIComponent(q)}`);
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><span class="icon">👥</span><h4>Sin clientes</h4><p>Registra tu primer cliente</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(c => `
+      <tr>
+        <td><strong>#${c.id_cliente}</strong></td>
+        <td><strong>${c.nombre}</strong></td>
+        <td><span class="badge badge-neutral">${c.identificacion}</span></td>
+        <td>${c.email ? `<a href="mailto:${c.email}">${c.email}</a>` : '<span style="color:var(--muted)">—</span>'}</td>
+        <td>${c.telefono || '<span style="color:var(--muted)">—</span>'}</td>
+        <td style="font-size:12px;color:var(--muted)">${c.direccion || '—'}</td>
+        <td>
+          <div class="cell-actions">
+            <button class="btn-icon" onclick="editar(${c.id_cliente})">✏️</button>
+            <button class="btn-icon" onclick="eliminar(${c.id_cliente})">🗑️</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function abrirNuevo() {
+  document.getElementById('modal-titulo').textContent = 'Nuevo Cliente';
+  ['f-id','f-nombre','f-identificacion','f-email','f-telefono','f-direccion'].forEach(id => document.getElementById(id).value = '');
+  openModal('modal-form');
+}
+
+async function editar(id) {
+  try {
+    const c = await api('GET', `/api/clientes/${id}`);
+    document.getElementById('modal-titulo').textContent = 'Editar Cliente';
+    document.getElementById('f-id').value = c.id_cliente;
+    document.getElementById('f-nombre').value = c.nombre;
+    document.getElementById('f-identificacion').value = c.identificacion;
+    document.getElementById('f-email').value = c.email || '';
+    document.getElementById('f-telefono').value = c.telefono || '';
+    document.getElementById('f-direccion').value = c.direccion || '';
+    openModal('modal-form');
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+async function guardar() {
+  const id = document.getElementById('f-id').value;
+  const nombre = document.getElementById('f-nombre').value.trim();
+  const identificacion = document.getElementById('f-identificacion').value.trim();
+  if (!nombre || !identificacion) return showToast('Nombre e identificación son requeridos','error');
+  const body = {
+    nombre, identificacion,
+    email:     document.getElementById('f-email').value.trim() || null,
+    telefono:  document.getElementById('f-telefono').value.trim() || null,
+    direccion: document.getElementById('f-direccion').value.trim() || null,
+  };
+  try {
+    if (id) await api('PUT', `/api/clientes/${id}`, body);
+    else     await api('POST', '/api/clientes', body);
+    showToast(id ? 'Cliente actualizado ✅' : 'Cliente registrado ✅','success');
+    closeModal('modal-form'); cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function eliminar(id) { _delId = id; openModal('modal-del'); }
+async function confirmarEliminar() {
+  try {
+    await api('DELETE', `/api/clientes/${_delId}`);
+    showToast('Cliente eliminado','success');
+    closeModal('modal-del'); cargar();
+  } catch(e) { showToast(e.message,'error'); closeModal('modal-del'); }
+}
+
+cargar();
+</script>
+</body>
+</html>

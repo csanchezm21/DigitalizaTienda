@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Estadísticas — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title"></span>
+      <div class="topbar-right">
+        <button class="btn btn-secondary" onclick="cargar()">🔄 Actualizar</button>
+      </div>
+    </header>
+    <main class="app-main">
+
+      <!-- KPIs de resumen -->
+      <div class="kpi-grid" id="kpi-resumen">
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <!-- Gráficos -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+        <div class="panel">
+          <div class="panel-head"><h3>📊 Ganancia por Producto</h3></div>
+          <div class="panel-body"><div class="chart-container"><canvas id="chartGanancia"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>📉 Ventas vs Pérdidas por Mes</h3></div>
+          <div class="panel-body"><div class="chart-container"><canvas id="chartMeses"></canvas></div></div>
+        </div>
+      </div>
+
+      <!-- Tabla detallada -->
+      <div class="panel">
+        <div class="panel-head">
+          <h3>📋 Detalle de Ganancias / Pérdidas por Producto</h3>
+          <div class="search-bar">
+            <input id="q-buscar" placeholder="🔍 Filtrar producto..." oninput="renderTabla()">
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Producto</th>
+                <th>Categoría</th>
+                <th>Stock</th>
+                <th>Costo Inventario</th>
+                <th>Valor Inventario</th>
+                <th>Vendido (uds)</th>
+                <th>Perdido (uds)</th>
+                <th>Ganancia Ventas</th>
+                <th>Pérdida Merma</th>
+                <th>Ganancia Potencial</th>
+                <th>Balance</th>
+              </tr></thead>
+              <tbody id="tabla-body">
+                <tr><td colspan="11"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Totales -->
+        <div id="totales-row" style="padding:14px 20px;background:var(--brand-lt);border-top:1px solid var(--brand-border);display:none;">
+          <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px;">
+            <span>💰 <strong>Ganancia total ventas: </strong><span id="tot-ganancia" class="stat-positive"></span></span>
+            <span>❌ <strong>Pérdida total merma: </strong><span id="tot-perdida" class="stat-negative"></span></span>
+            <span>🌟 <strong>Ganancia potencial: </strong><span id="tot-potencial" style="color:var(--accent);font-weight:700"></span></span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="layout.js"></script>
+<script>
+initLayout('estadisticas');
+let _data = [];
+let _chartG = null, _chartM = null;
+
+async function cargar() {
+  try {
+    const [resumen, inventario, meses] = await Promise.all([
+      api('GET', '/api/estadisticas/resumen'),
+      api('GET', '/api/estadisticas/inventario'),
+      api('GET', '/api/estadisticas/ventas-por-mes'),
+    ]);
+    _data = inventario;
+    renderKPIs(resumen);
+    renderTabla();
+    renderChartGanancia(inventario);
+    renderChartMeses(meses);
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function renderKPIs(r) {
+  document.getElementById('kpi-resumen').innerHTML = `
+    <div class="kpi-card ok">
+      <div class="kpi-icon">💰</div>
+      <div class="kpi-value">${fmtMoney(r.ganancia_realizada)}</div>
+      <div class="kpi-label">Ganancia Realizada</div>
+    </div>
+    <div class="kpi-card warn">
+      <div class="kpi-icon">📉</div>
+      <div class="kpi-value">${fmtMoney(r.perdida_total)}</div>
+      <div class="kpi-label">Pérdida por Merma</div>
+    </div>
+    <div class="kpi-card blue">
+      <div class="kpi-icon">🌟</div>
+      <div class="kpi-value">${fmtMoney(r.ganancia_potencial)}</div>
+      <div class="kpi-label">Ganancia Potencial</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">🏪</div>
+      <div class="kpi-value">${fmtMoney(r.valor_total_inventario)}</div>
+      <div class="kpi-label">Valor Inventario (venta)</div>
+    </div>
+  `;
+}
+
+function renderTabla() {
+  const q = document.getElementById('q-buscar').value.toLowerCase();
+  const tbody = document.getElementById('tabla-body');
+  const rows = _data.filter(r => r.nombre_producto.toLowerCase().includes(q));
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><span class="icon">📈</span><h4>Sin datos</h4></div></td></tr>`;
+    return;
+  }
+
+  let totG = 0, totP = 0, totPot = 0;
+
+  tbody.innerHTML = rows.map(r => {
+    const balance = Number(r.ganancia_ventas) - Number(r.perdida_merma);
+    totG   += Number(r.ganancia_ventas);
+    totP   += Number(r.perdida_merma);
+    totPot += Number(r.ganancia_potencial);
+    const balClass = balance >= 0 ? 'stat-positive' : 'stat-negative';
+    return `
+    <tr>
+      <td><strong>${r.nombre_producto}</strong><br><small style="color:var(--muted)">${r.nombre_proveedor}</small></td>
+      <td><span class="badge badge-brand">${r.nombre_categoria}</span></td>
+      <td><span class="badge ${r.stock_actual < 5 ? 'badge-danger' : r.stock_actual < 20 ? 'badge-warn' : 'badge-ok'}">${r.stock_actual}</span></td>
+      <td class="stat-neutral">${fmtMoney(r.costo_inventario)}</td>
+      <td>${fmtMoney(r.valor_inventario)}</td>
+      <td style="text-align:center"><strong>${r.total_vendido}</strong></td>
+      <td style="text-align:center"><span class="${Number(r.total_perdido)>0?'stat-negative':'stat-neutral'}">${r.total_perdido}</span></td>
+      <td class="stat-positive">${fmtMoney(r.ganancia_ventas)}</td>
+      <td class="${Number(r.perdida_merma)>0?'stat-negative':'stat-neutral'}">${fmtMoney(r.perdida_merma)}</td>
+      <td style="color:var(--accent);font-weight:600">${fmtMoney(r.ganancia_potencial)}</td>
+      <td class="${balClass}">${fmtMoney(balance)}</td>
+    </tr>`;
+  }).join('');
+
+  // Totales
+  document.getElementById('totales-row').style.display = 'block';
+  document.getElementById('tot-ganancia').textContent = fmtMoney(totG);
+  document.getElementById('tot-perdida').textContent  = fmtMoney(totP);
+  document.getElementById('tot-potencial').textContent = fmtMoney(totPot);
+}
+
+function renderChartGanancia(data) {
+  if (_chartG) _chartG.destroy();
+  const ctx = document.getElementById('chartGanancia').getContext('2d');
+  _chartG = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(r => r.nombre_producto.substring(0,15)),
+      datasets: [
+        { label: 'Ganancia', data: data.map(r => Number(r.ganancia_ventas).toFixed(0)), backgroundColor: '#7C3D1E', borderRadius: 6 },
+        { label: 'Pérdida',  data: data.map(r => Number(r.perdida_merma).toFixed(0)),  backgroundColor: '#B92B2B', borderRadius: 6 },
+        { label: 'Potencial',data: data.map(r => Number(r.ganancia_potencial).toFixed(0)), backgroundColor: '#F5C89A', borderRadius: 6 },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}} }
+  });
+}
+
+function renderChartMeses(meses) {
+  if (_chartM) _chartM.destroy();
+  const ctx = document.getElementById('chartMeses').getContext('2d');
+  _chartM = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: meses.map(m => m.mes),
+      datasets: [
+        { label: 'Vendidas', data: meses.map(m => m.vendidas), borderColor:'#7C3D1E', backgroundColor:'rgba(124,61,30,.1)', tension:.3, fill:true },
+        { label: 'Perdidas', data: meses.map(m => m.perdidas), borderColor:'#B92B2B', backgroundColor:'rgba(185,43,43,.08)', tension:.3, fill:true },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}} }
+  });
+}
+
+cargar();
+</script>
+</body>
+</html>

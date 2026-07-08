@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Productos — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title"></span>
+      <div class="topbar-right">
+        <button class="btn btn-primary" onclick="abrirModalNuevo()">➕ Nuevo producto</button>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Lista de Productos</h3>
+          <div class="search-bar">
+            <input id="q-buscar" placeholder="🔍 Buscar..." oninput="cargar()">
+            <select id="q-cat" onchange="cargar()"><option value="">Todas las categorías</option></select>
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Producto</th><th>Categoría</th><th>Proveedor</th>
+                <th>Precio Neto</th><th>Precio Venta</th><th>Stock</th><th>Estado</th><th>Acciones</th>
+              </tr></thead>
+              <tbody id="tabla-body">
+                <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL FORMULARIO -->
+<div class="modal-backdrop hidden" id="modal-form">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-titulo">Nuevo Producto</h3>
+      <button class="modal-close" onclick="closeModal('modal-form')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="f-id">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Nombre del Producto *</label>
+          <input id="f-nombre" placeholder="Ej: Laptop HP 15" required>
+        </div>
+        <div class="form-group">
+          <label>Categoría *</label>
+          <select id="f-categoria"><option value="">Seleccionar...</option></select>
+        </div>
+        <div class="form-group">
+          <label>Proveedor *</label>
+          <select id="f-proveedor"><option value="">Seleccionar...</option></select>
+        </div>
+        <div class="form-group">
+          <label>Fecha de Entrada *</label>
+          <input type="date" id="f-fecha">
+        </div>
+        <div class="form-group">
+          <label>Stock Inicial</label>
+          <input type="number" id="f-stock" min="0" value="0">
+        </div>
+        <div class="form-group">
+          <label>Precio Neto (costo) *</label>
+          <input type="number" id="f-neto" min="0" step="0.01" placeholder="0.00">
+        </div>
+        <div class="form-group">
+          <label>Precio de Venta *</label>
+          <input type="number" id="f-venta" min="0" step="0.01" placeholder="0.00">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-form')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardar()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAR ELIMINAR -->
+<div class="modal-backdrop hidden" id="modal-del">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header"><h3>¿Eliminar producto?</h3><button class="modal-close" onclick="closeModal('modal-del')">✕</button></div>
+    <div class="modal-body"><p>Esta acción es permanente (borrado lógico). ¿Continuar?</p></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-del')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarEliminar()">🗑️ Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script src="layout.js"></script>
+<script>
+initLayout('productos');
+let _delId = null;
+
+async function cargar() {
+  const b = document.getElementById('q-buscar').value;
+  const c = document.getElementById('q-cat').value;
+  const tbody = document.getElementById('tabla-body');
+  try {
+    const rows = await api('GET', `/api/productos?buscar=${encodeURIComponent(b)}&categoria=${c}`);
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><span class="icon">📦</span><h4>Sin productos</h4><p>Agrega tu primer producto</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(p => `
+      <tr>
+        <td><strong>#${p.id_producto}</strong></td>
+        <td>${p.nombre_producto}</td>
+        <td><span class="badge badge-brand">${p.nombre_categoria}</span></td>
+        <td>${p.nombre_proveedor}</td>
+        <td>${fmtMoney(p.precio_neto)}</td>
+        <td>${fmtMoney(p.precio_venta)}</td>
+        <td><span class="badge ${p.stock < 5 ? 'badge-danger' : p.stock < 20 ? 'badge-warn' : 'badge-ok'}">${p.stock} uds</span></td>
+        <td><span class="badge ${p.activo ? 'badge-ok' : 'badge-neutral'}">${p.activo ? 'Activo' : 'Inactivo'}</span></td>
+        <td>
+          <div class="cell-actions">
+            <button class="btn-icon" title="Editar" onclick="editar(${p.id_producto})">✏️</button>
+            <button class="btn-icon" title="Eliminar" onclick="eliminar(${p.id_producto})">🗑️</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+async function cargarSelects() {
+  const [cats, provs] = await Promise.all([
+    api('GET','/api/categorias'), api('GET','/api/proveedores')
+  ]);
+  const fCat = document.getElementById('f-categoria');
+  const fProv = document.getElementById('f-proveedor');
+  const qCat = document.getElementById('q-cat');
+  cats.forEach(c => {
+    fCat.innerHTML += `<option value="${c.id_categoria}">${c.nombre_categoria}</option>`;
+    qCat.innerHTML += `<option value="${c.id_categoria}">${c.nombre_categoria}</option>`;
+  });
+  provs.forEach(p => fProv.innerHTML += `<option value="${p.id_proveedor}">${p.nombre_proveedor}</option>`);
+}
+
+function abrirModalNuevo() {
+  document.getElementById('modal-titulo').textContent = 'Nuevo Producto';
+  document.getElementById('f-id').value = '';
+  ['f-nombre','f-stock','f-neto','f-venta'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('f-categoria').value = '';
+  document.getElementById('f-proveedor').value = '';
+  openModal('modal-form');
+}
+
+async function editar(id) {
+  try {
+    const p = await api('GET', `/api/productos/${id}`);
+    document.getElementById('modal-titulo').textContent = 'Editar Producto';
+    document.getElementById('f-id').value = p.id_producto;
+    document.getElementById('f-nombre').value = p.nombre_producto;
+    document.getElementById('f-categoria').value = p.id_categoria;
+    document.getElementById('f-proveedor').value = p.id_proveedor;
+    document.getElementById('f-fecha').value = p.fecha_entrada?.split('T')[0] || '';
+    document.getElementById('f-neto').value = p.precio_neto;
+    document.getElementById('f-venta').value = p.precio_venta;
+    document.getElementById('f-stock').value = p.stock;
+    openModal('modal-form');
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+async function guardar() {
+  const id = document.getElementById('f-id').value;
+  const body = {
+    nombre_producto: document.getElementById('f-nombre').value.trim(),
+    id_categoria_fk: document.getElementById('f-categoria').value,
+    id_proveedor_fk: document.getElementById('f-proveedor').value,
+    fecha_entrada:   document.getElementById('f-fecha').value,
+    precio_neto:     document.getElementById('f-neto').value,
+    precio_venta:    document.getElementById('f-venta').value,
+    stock:           document.getElementById('f-stock').value,
+  };
+  if (!body.nombre_producto || !body.id_categoria_fk || !body.id_proveedor_fk || !body.fecha_entrada)
+    return showToast('Completa todos los campos requeridos','error');
+  try {
+    if (id) await api('PUT', `/api/productos/${id}`, body);
+    else     await api('POST', '/api/productos', body);
+    showToast(id ? 'Producto actualizado ✅' : 'Producto creado ✅','success');
+    closeModal('modal-form');
+    cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function eliminar(id) { _delId = id; openModal('modal-del'); }
+async function confirmarEliminar() {
+  try {
+    await api('DELETE', `/api/productos/${_delId}`);
+    showToast('Producto eliminado','success');
+    closeModal('modal-del');
+    cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+cargarSelects();
+cargar();
+</script>
+</body>
+</html>

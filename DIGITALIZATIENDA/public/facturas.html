@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Facturas — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title"></span>
+      <div class="topbar-right">
+        <button class="btn btn-primary" onclick="openModal('modal-form')">➕ Nueva Factura</button>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Historial de Facturas</h3>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Cliente (ID)</th><th>Producto</th><th>Método Pago</th>
+                <th>Fecha</th><th>Vendido</th><th>Perdido</th><th>Neto</th><th>Total</th><th>Acciones</th>
+              </tr></thead>
+              <tbody id="tabla-body">
+                <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Cargando...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL NUEVA FACTURA -->
+<div class="modal-backdrop hidden" id="modal-form">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-header">
+      <h3>🧾 Nueva Factura</h3>
+      <button class="modal-close" onclick="closeModal('modal-form')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Producto (Inventario) *</label>
+          <select id="f-inventario"><option value="">Seleccionar producto...</option></select>
+        </div>
+        <div class="form-group">
+          <label>ID / Documento Cliente *</label>
+          <input id="f-id-cliente" placeholder="Ej: 1020304050">
+        </div>
+        <div class="form-group">
+          <label>Email Cliente (para factura)</label>
+          <input type="email" id="f-email-cliente" placeholder="cliente@correo.com">
+        </div>
+        <div class="form-group">
+          <label>Método de Pago *</label>
+          <select id="f-metodo">
+            <option value="">Seleccionar...</option>
+            <option>Efectivo</option>
+            <option>Tarjeta débito</option>
+            <option>Tarjeta crédito</option>
+            <option>Transferencia</option>
+            <option>Nequi / Daviplata</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Fecha de Compra *</label>
+          <input type="date" id="f-fecha">
+        </div>
+        <div class="form-group">
+          <label>Cantidad Vendida</label>
+          <input type="number" id="f-vendida" min="0" value="1">
+        </div>
+        <div class="form-group">
+          <label>Cantidad Perdida / Merma</label>
+          <input type="number" id="f-perdida" min="0" value="0">
+        </div>
+      </div>
+      <div id="stock-info" style="margin-top:12px;padding:10px 14px;background:var(--brand-lt);border-radius:8px;font-size:13px;color:var(--brand);display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-form')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarFactura()">🧾 Crear y Enviar Factura</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL REENVIAR EMAIL -->
+<div class="modal-backdrop hidden" id="modal-email">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <h3>📧 Reenviar Factura por Email</h3>
+      <button class="modal-close" onclick="closeModal('modal-email')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:14px;color:var(--muted);font-size:13px;">Factura <strong id="re-id"></strong></p>
+      <div class="form-group">
+        <label>Email destino</label>
+        <input type="email" id="re-email" placeholder="destino@correo.com">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-email')">Cancelar</button>
+      <button class="btn btn-accent" onclick="reenviarEmail()">📤 Enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ELIMINAR -->
+<div class="modal-backdrop hidden" id="modal-del">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header"><h3>¿Eliminar factura?</h3><button class="modal-close" onclick="closeModal('modal-del')">✕</button></div>
+    <div class="modal-body"><p>Esta acción es irreversible.</p></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-del')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarEliminar()">🗑️ Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script src="layout.js"></script>
+<script>
+initLayout('facturas');
+let _delId = null, _reId = null, _inventarios = [];
+
+async function cargar() {
+  const tbody = document.getElementById('tabla-body');
+  try {
+    const rows = await api('GET', '/api/facturas');
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state"><span class="icon">🧾</span><h4>Sin facturas</h4><p>Crea la primera factura</p></div></td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map(f => `
+      <tr>
+        <td><strong>#${f.id_factura}</strong></td>
+        <td>
+          <strong>${f.nombre_cliente || f.identificacion_cliente}</strong>
+          <br><small style="color:var(--muted)">${f.identificacion_cliente}</small>
+        </td>
+        <td>${f.nombre_producto}</td>
+        <td><span class="badge badge-accent">${f.metodode_pago}</span></td>
+        <td>${fmtDate(f.fecha_compra)}</td>
+        <td style="text-align:center"><span class="badge badge-ok">${f.cantidad_vendida ?? 0}</span></td>
+        <td style="text-align:center"><span class="badge ${(f.cantidad_perdida??0)>0 ? 'badge-danger' : 'badge-neutral'}">${f.cantidad_perdida ?? 0}</span></td>
+        <td style="text-align:center"><strong>${f.cantidad_neta ?? 0}</strong></td>
+        <td><strong>${fmtMoney((f.precio_venta||0) * (f.cantidad_neta||0))}</strong></td>
+        <td>
+          <div class="cell-actions">
+            <button class="btn-icon" title="Enviar por email" onclick="abrirEmail(${f.id_factura}, '${f.email_cliente||''}')">📧</button>
+            <button class="btn-icon" title="Eliminar" onclick="eliminar(${f.id_factura})">🗑️</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+async function cargarInventarios() {
+  try {
+    const prods = await api('GET', '/api/productos');
+    _inventarios = prods;
+    const sel = document.getElementById('f-inventario');
+    prods.forEach(p => sel.innerHTML += `<option value="${p.id_inventario||p.id_producto}" data-stock="${p.stock}" data-precio="${p.precio_venta}">${p.nombre_producto} (Stock: ${p.stock})</option>`);
+  } catch {}
+}
+
+document.getElementById('f-inventario')?.addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  const stock = opt?.dataset?.stock;
+  const precio = opt?.dataset?.precio;
+  const info = document.getElementById('stock-info');
+  if (stock !== undefined) {
+    info.style.display = 'block';
+    info.innerHTML = `📦 Stock disponible: <strong>${stock} unidades</strong> &nbsp;|&nbsp; 💲 Precio venta: <strong>${fmtMoney(precio)}</strong>`;
+  } else { info.style.display = 'none'; }
+});
+
+async function guardarFactura() {
+  const inv = document.getElementById('f-inventario').value;
+  const idCliente = document.getElementById('f-id-cliente').value.trim();
+  const metodo = document.getElementById('f-metodo').value;
+  const fecha = document.getElementById('f-fecha').value;
+  if (!inv || !idCliente || !metodo || !fecha) return showToast('Completa todos los campos requeridos','error');
+  const body = {
+    id_inventario_fk:       parseInt(inv),
+    identificacion_cliente: idCliente,
+    metodode_pago:          metodo,
+    fecha_compra:           fecha,
+    email_cliente:          document.getElementById('f-email-cliente').value.trim() || null,
+    cantidad_vendida:       parseInt(document.getElementById('f-vendida').value)||0,
+    cantidad_perdida:       parseInt(document.getElementById('f-perdida').value)||0,
+  };
+  try {
+    const result = await api('POST', '/api/facturas', body);
+    let msg = `Factura #${result.id_factura} creada ✅`;
+    if (result._email_enviado) msg += ' — Email enviado 📧';
+    else if (result._email_error) msg += ' — Email no enviado (configura SMTP)';
+    showToast(msg, 'success', 5000);
+    closeModal('modal-form'); cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function abrirEmail(id, emailPrev) {
+  _reId = id;
+  document.getElementById('re-id').textContent = `#${id}`;
+  document.getElementById('re-email').value = emailPrev || '';
+  openModal('modal-email');
+}
+async function reenviarEmail() {
+  const email = document.getElementById('re-email').value.trim();
+  if (!email) return showToast('Ingresa un email','error');
+  try {
+    await api('POST', `/api/facturas/${_reId}/email`, { email });
+    showToast('Factura enviada por email ✅','success');
+    closeModal('modal-email');
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+function eliminar(id) { _delId = id; openModal('modal-del'); }
+async function confirmarEliminar() {
+  try {
+    await api('DELETE', `/api/facturas/${_delId}`);
+    showToast('Factura eliminada','success');
+    closeModal('modal-del'); cargar();
+  } catch(e) { showToast(e.message,'error'); }
+}
+
+document.getElementById('f-fecha').value = new Date().toISOString().split('T')[0];
+cargarInventarios();
+cargar();
+</script>
+</body>
+</html>

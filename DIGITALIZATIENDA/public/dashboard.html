@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Digitaliza Tu Tienda</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="app-body">
+    <header class="topbar">
+      <span class="topbar-title" id="topbar-title">Dashboard</span>
+      <div class="topbar-right">
+        <span class="topbar-badge" id="fecha-hoy"></span>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="page-header">
+        <div><h2>Bienvenido al Sistema 👋</h2><p>Resumen general del inventario y ventas</p></div>
+      </div>
+
+      <!-- KPIs -->
+      <div class="kpi-grid" id="kpi-grid">
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+        <div class="kpi-card"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;flex-wrap:wrap;">
+        <!-- Gráfico ventas por mes -->
+        <div class="panel">
+          <div class="panel-head"><h3>📈 Ventas por Mes</h3></div>
+          <div class="panel-body"><div class="chart-container"><canvas id="chartVentas"></canvas></div></div>
+        </div>
+        <!-- Gráfico ganancias/pérdidas -->
+        <div class="panel">
+          <div class="panel-head"><h3>💰 Ganancia vs Pérdida</h3></div>
+          <div class="panel-body"><div class="chart-container"><canvas id="chartGP"></canvas></div></div>
+        </div>
+      </div>
+
+      <!-- Accesos rápidos -->
+      <div class="panel" style="margin-top:20px;">
+        <div class="panel-head"><h3>⚡ Accesos Rápidos</h3></div>
+        <div class="panel-body" style="display:flex;gap:12px;flex-wrap:wrap;">
+          <a href="/productos"    class="btn btn-primary">📦 Productos</a>
+          <a href="/categorias"  class="btn btn-secondary">🏷️ Categorías</a>
+          <a href="/proveedores" class="btn btn-secondary">🚚 Proveedores</a>
+          <a href="/clientes"    class="btn btn-secondary">👥 Clientes</a>
+          <a href="/facturas"    class="btn btn-accent">🧾 Nueva Factura</a>
+          <a href="/estadisticas"class="btn btn-secondary">📈 Estadísticas</a>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="layout.js"></script>
+<script>
+initLayout('dashboard');
+document.getElementById('fecha-hoy').textContent = new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+async function loadDashboard() {
+  try {
+    const [dash, estad, meses] = await Promise.all([
+      api('GET','/api/productos/dashboard'),
+      api('GET','/api/estadisticas/resumen'),
+      api('GET','/api/estadisticas/ventas-por-mes'),
+    ]);
+
+    document.getElementById('kpi-grid').innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-icon">📦</div>
+        <div class="kpi-value">${dash.total}</div>
+        <div class="kpi-label">Productos activos</div>
+      </div>
+      <div class="kpi-card ${dash.bajo > 0 ? 'warn' : 'ok'}">
+        <div class="kpi-icon">${dash.bajo > 0 ? '⚠️' : '✅'}</div>
+        <div class="kpi-value">${dash.bajo}</div>
+        <div class="kpi-label">Stock bajo (< 5 und.)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon">🏷️</div>
+        <div class="kpi-value">${dash.categorias}</div>
+        <div class="kpi-label">Categorías</div>
+      </div>
+      <div class="kpi-card blue">
+        <div class="kpi-icon">💵</div>
+        <div class="kpi-value">${fmtMoney(estad.ganancia_realizada)}</div>
+        <div class="kpi-label">Ganancia realizada</div>
+      </div>
+    `;
+
+    // Gráfico ventas por mes
+    const ctx1 = document.getElementById('chartVentas').getContext('2d');
+    new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels: meses.map(m => m.mes),
+        datasets: [{
+          label: 'Vendidas',
+          data: meses.map(m => m.vendidas),
+          backgroundColor: '#7C3D1E',
+          borderRadius: 6,
+        },{
+          label: 'Perdidas',
+          data: meses.map(m => m.perdidas),
+          backgroundColor: '#F5C89A',
+          borderRadius: 6,
+        }]
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}} }
+    });
+
+    // Gráfico ganancia vs pérdida
+    const ctx2 = document.getElementById('chartGP').getContext('2d');
+    new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: ['Ganancia realizada','Pérdida por merma','Ganancia potencial'],
+        datasets:[{
+          data:[
+            Number(estad.ganancia_realizada||0).toFixed(0),
+            Number(estad.perdida_total||0).toFixed(0),
+            Number(estad.ganancia_potencial||0).toFixed(0),
+          ],
+          backgroundColor:['#7C3D1E','#B92B2B','#F5C89A'],
+          borderWidth:2, borderColor:'#fff',
+        }]
+      },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'right'}} }
+    });
+  } catch(e) { showToast('Error cargando datos: ' + e.message, 'error'); }
+}
+loadDashboard();
+</script>
+</body>
+</html>
